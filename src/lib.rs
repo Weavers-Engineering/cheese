@@ -4,6 +4,7 @@
 //! crates (and the binary) share one source of truth.
 
 pub mod exec;
+pub mod pipe;
 pub mod pty;
 pub mod render;
 pub mod theme;

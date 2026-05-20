@@ -1,6 +1,6 @@
 //! `cheese exec` flow: spawn the command in a PTY, parse the captured
 //! bytes through the VT state machine, render the grid to a Pixmap, and
-//! write the encoded PNG to disk.
+//! write the encoded PNG to disk (or push it to the clipboard).
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
@@ -12,14 +12,16 @@ use crate::{
     vt,
 };
 
-/// Arguments accepted by `cheese exec`.
-///
-/// All fields drive either PTY sizing (`cols`, `rows`), rendering
-/// (`font_size`, `padding`, `chrome`, `theme`, `no_shadow`), or output
-/// (`output`).
+/// Optional window chrome around the cell region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Chrome {
+    None,
+    Mac,
+}
+
+/// Knobs shared by every cheese render entry point (exec and pipe).
 #[derive(Debug, Clone)]
-pub struct ExecArgs {
-    pub cmd: Vec<String>,
+pub struct RenderRequest {
     pub cols: u16,
     pub rows: u16,
     /// `Some(path)` writes the PNG to disk; `None` copies the image to
@@ -32,11 +34,11 @@ pub struct ExecArgs {
     pub no_shadow: bool,
 }
 
-/// Optional window chrome around the cell region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum Chrome {
-    None,
-    Mac,
+/// Arguments accepted by `cheese exec`.
+#[derive(Debug, Clone)]
+pub struct ExecArgs {
+    pub cmd: Vec<String>,
+    pub render: RenderRequest,
 }
 
 /// Spawn the child, parse its output, render the grid, write the PNG.
@@ -47,22 +49,31 @@ pub enum Chrome {
 /// captured bytes, the theme name is unknown, the pixmap allocation
 /// overflows, or the output path cannot be written.
 pub fn run(args: ExecArgs) -> Result<()> {
-    let captured = pty::run(&args.cmd, args.cols, args.rows)?;
+    let captured = pty::run(&args.cmd, args.render.cols, args.render.rows)?;
     let stream = with_prompt(&args.cmd, &captured);
-    let grid = vt::parse(&stream, args.cols as usize, args.rows as usize)?;
-    let theme = resolve_theme(&args.theme)?;
+    render_and_emit(&stream, &args.render)
+}
+
+/// Parse `bytes` into a grid, render it, and deliver to the operator's
+/// chosen sink (file path or clipboard).
+///
+/// Public so the pipe-mode entry point can call it without duplicating
+/// the render+emit dance.
+pub fn render_and_emit(bytes: &[u8], req: &RenderRequest) -> Result<()> {
+    let grid = vt::parse(bytes, req.cols as usize, req.rows as usize)?;
+    let theme = resolve_theme(&req.theme)?;
     let opts = RenderOpts {
         theme,
-        font_size: args.font_size,
-        padding: args.padding,
-        chrome: args.chrome,
-        no_shadow: args.no_shadow,
+        font_size: req.font_size,
+        padding: req.padding,
+        chrome: req.chrome,
+        no_shadow: req.no_shadow,
     };
     let pixmap = render::draw(&grid, &opts)?;
-    match args.output {
+    match &req.output {
         Some(path) => {
             pixmap
-                .save_png(&path)
+                .save_png(path)
                 .with_context(|| format!("writing png to {}", path.display()))?;
             eprintln!("wrote {}", path.display());
         }
@@ -108,11 +119,6 @@ fn resolve_theme(name: &str) -> Result<Theme> {
 
 /// Prepend a synthetic shell prompt line to the captured stream so the
 /// final render shows the command above its output.
-///
-/// The prompt symbol is `\x1b[32m\u{276f}\x1b[0m ` (green chevron) and
-/// is followed by the joined command and a CRLF. This makes
-/// `cheese exec "isd ps"` look like a real terminal session instead of
-/// raw output.
 fn with_prompt(cmd: &[String], captured: &[u8]) -> Vec<u8> {
     const PROMPT: &[u8] = b"\x1b[32m\xe2\x9d\xaf\x1b[0m ";
     let joined = cmd.join(" ");
