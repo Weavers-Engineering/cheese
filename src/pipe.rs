@@ -55,10 +55,16 @@ pub fn capture_sibling_argv() -> Option<Vec<String>> {
     let my_pid: i64 = std::process::id() as i64;
     let my_pgrp: i64 = unsafe { getpgrp() as i64 };
 
-    let output = Command::new("ps")
+    // Spawn `ps` and grab its PID before reading its output: ps is
+    // itself in our pgrp during the scan, so it would show up as a
+    // pipe sibling and clobber the real source.
+    let child = Command::new("ps")
         .args(["-A", "-o", "pid=,pgid=,args="])
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .spawn()
         .ok()?;
+    let ps_pid: i64 = child.id() as i64;
+    let output = child.wait_with_output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -88,7 +94,13 @@ pub fn capture_sibling_argv() -> Option<Vec<String>> {
             Ok(n) => n,
             Err(_) => continue,
         };
-        if pid == my_pid || pgid != my_pgrp {
+        if pid == my_pid || pid == ps_pid || pgid != my_pgrp {
+            continue;
+        }
+        // Belt-and-suspenders: also skip any other `ps` invocation,
+        // in case the PID-based exclusion misses (e.g. ps re-exec
+        // itself, fork race).
+        if argv_command_is_ps(args) {
             continue;
         }
         count += 1;
@@ -102,6 +114,16 @@ pub fn capture_sibling_argv() -> Option<Vec<String>> {
         found = Some(argv);
     }
     found
+}
+
+/// True when the args field's first token (the command) is a `ps`
+/// invocation (`ps`, `/bin/ps`, `/usr/bin/ps`, etc.). Catches the case
+/// where our own ps shellout shows up under a different PID than the
+/// one we recorded (fork timing, kernel reuse).
+fn argv_command_is_ps(args: &str) -> bool {
+    let first = args.split_whitespace().next().unwrap_or("");
+    let basename = first.rsplit('/').next().unwrap_or(first);
+    basename == "ps"
 }
 
 // `getpgrp(3)`. Always returns the calling process's pgrp; never
