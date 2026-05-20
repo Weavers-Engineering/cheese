@@ -9,7 +9,13 @@ cheese exec -o out.png "isd ps" # write a file instead of clipboard
 cheese capture                  # v0.2: screenshot your running terminal pane
 ```
 
-Pipe mode is the natural unix fit (`<cmd> | cheese`). Most CLIs strip ANSI colors when their stdout isn't a tty, so use `CLICOLOR_FORCE=1 <cmd> | cheese` or the tool's `--color=always` equivalent when piping color-aware programs.
+Pipe mode is the natural unix fit (`<cmd> | cheese`). Source tools usually disable two things when their stdout isn't a tty: ANSI colors and width detection. To recover both, set the relevant env vars on the source command:
+
+```sh
+CLICOLOR_FORCE=1 COLUMNS=$(tput cols) isd ps | cheese
+```
+
+cheese itself renders at your terminal's width (auto-detected); the canvas auto-fits to the actual content's last non-blank row and column.
 
 ## Why
 

@@ -30,6 +30,12 @@ pub struct Grid {
     /// (max non-blank row index + 1). Always at least 1.
     /// The renderer uses this to crop trailing empty rows.
     pub used_rows: usize,
+    /// Number of columns from the left that carry non-blank content
+    /// (max non-blank column index + 1). Always at least 1.
+    /// The renderer uses this to crop trailing empty columns so that
+    /// piped input rendered at a generously wide virtual terminal does
+    /// not pad the canvas with empty cells.
+    pub used_cols: usize,
 }
 
 /// A single cell with character + resolved colors + style flags.
@@ -118,6 +124,7 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
     };
 
     let used_rows = compute_used_rows(&cells, rows, cols);
+    let used_cols = compute_used_cols(&cells, rows, cols);
 
     Ok(Grid {
         rows,
@@ -125,6 +132,7 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
         cells,
         cursor,
         used_rows,
+        used_cols,
     })
 }
 
@@ -142,6 +150,26 @@ fn compute_used_rows(cells: &[Cell], rows: usize, cols: usize) -> usize {
         }
     }
     1
+}
+
+/// Find the last column that carries non-space content anywhere in
+/// the grid, +1. Clamps to at least 1 so the canvas is never
+/// zero-width.
+fn compute_used_cols(cells: &[Cell], rows: usize, cols: usize) -> usize {
+    let mut max_col_plus_1 = 1;
+    for row in 0..rows {
+        let start = row * cols;
+        for col in (0..cols).rev() {
+            let c = cells[start + col];
+            if c.ch != ' ' && c.ch != '\0' {
+                if col + 1 > max_col_plus_1 {
+                    max_col_plus_1 = col + 1;
+                }
+                break;
+            }
+        }
+    }
+    max_col_plus_1
 }
 
 /// Map alacritty's tri-variant color to cheese's resolved `Color`.
