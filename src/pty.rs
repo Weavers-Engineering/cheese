@@ -27,10 +27,7 @@ pub fn run(cmd: &[String], cols: u16, rows: u16) -> Result<Vec<u8>> {
         })
         .context("opening pty")?;
 
-    let mut command = CommandBuilder::new(&cmd[0]);
-    if cmd.len() > 1 {
-        command.args(&cmd[1..]);
-    }
+    let mut command = build_command(cmd);
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
     command.env("FORCE_COLOR", "1");
@@ -54,4 +51,25 @@ pub fn run(cmd: &[String], cols: u16, rows: u16) -> Result<Vec<u8>> {
     }
     child.wait().context("waiting for child")?;
     Ok(out)
+}
+
+/// Build a `CommandBuilder` from the user's argv.
+///
+/// A single argv entry that contains whitespace is treated as a shell
+/// command and dispatched through `$SHELL -c <cmd>` (falling back to
+/// `/bin/sh`). Multi-argv invocations and single bare program names get
+/// direct exec. This lets `cheese exec "isd ps"` work the same as
+/// `cheese exec -- isd ps`, and supports pipes / redirects when quoted.
+fn build_command(cmd: &[String]) -> CommandBuilder {
+    if cmd.len() == 1 && cmd[0].contains(char::is_whitespace) {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        let mut c = CommandBuilder::new(shell);
+        c.args(["-c", &cmd[0]]);
+        return c;
+    }
+    let mut c = CommandBuilder::new(&cmd[0]);
+    if cmd.len() > 1 {
+        c.args(&cmd[1..]);
+    }
+    c
 }
