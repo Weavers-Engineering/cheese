@@ -18,7 +18,7 @@ Existing tools (freeze, t-rec, asciinema) run the command in a constrained pty o
 v0.0.x: working toward v0.1.
 
 - [x] **Phase 1**: CLI chassis (clap, version, exit shape).
-- [x] **Phase 2**: PTY capture (`portable-pty`) + VT state parse (`libghostty-vt`).
+- [x] **Phase 2**: PTY capture (`portable-pty`) + VT state parse (`alacritty_terminal`).
 - [x] **Phase 3**: Renderer (`tiny-skia` + `cosmic-text`), Tokyo Night theme, JetBrains Mono Nerd Font.
 - [ ] **Phase 4**: Golden-PNG regression tests.
 - [ ] **Phase 5**: `--chrome=mac`, padding, cursor polish.
@@ -31,19 +31,11 @@ After v0.1:
 
 ## Install
 
-### Prebuilt binary (recommended, post v0.1.0)
-
-GitHub Releases will ship self-contained darwin-arm64, darwin-x86_64, linux-x86_64, and linux-aarch64 binaries via `cargo-dist`. No toolchain required at install time. Available after the v0.1.0 tag lands.
-
-### From source
-
 ```sh
 cargo install cheese
 ```
 
-Requires **Zig 0.15.x** on the build host. `libghostty-vt-sys` (the Ghostty terminal core wrapper) builds its C surface through Ghostty's `build.zig`, which hard-fails on Zig 0.16+. Install with `brew install zig@0.15` on macOS or grab the 0.15.x tarball from `https://ziglang.org/download/`.
-
-Once a prebuilt binary install path exists (Phase 6), the Zig requirement only applies if you build from source.
+Pure Rust, no external toolchain. Once `cargo-dist` lands (Phase 6), prebuilt darwin-arm64, darwin-x86_64, linux-x86_64, and linux-aarch64 binaries will also ship on GitHub Releases.
 
 ## License
 
