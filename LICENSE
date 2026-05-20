@@ -1,3 +1,8 @@
+cheese is MIT-licensed. The bundled JetBrains Mono Nerd Font asset under
+assets/JetBrainsMonoNerdFont-Regular.ttf is SIL Open Font License 1.1
+(see https://github.com/JetBrains/JetBrainsMono/blob/master/OFL.txt and
+https://github.com/ryanoasis/nerd-fonts/blob/master/LICENSE).
+
 MIT License
 
 Copyright (c) 2026 Weavers Engineering

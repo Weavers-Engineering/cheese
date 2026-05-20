@@ -5,4 +5,6 @@
 
 pub mod exec;
 pub mod pty;
+pub mod render;
+pub mod theme;
 pub mod vt;
