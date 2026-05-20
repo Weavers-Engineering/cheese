@@ -3,10 +3,13 @@
 Say cheese. Get a pixel-perfect screenshot of your terminal.
 
 ```sh
-cheese exec "isd ps"            # copies the rendered PNG to your clipboard
-cheese exec -o out.png "isd ps" # writes a file instead
+cheese exec "isd ps"            # spawn in a PTY, copy PNG to clipboard
+isd ps | cheese                 # or pipe stdout straight in
+cheese exec -o out.png "isd ps" # write a file instead of clipboard
 cheese capture                  # v0.2: screenshot your running terminal pane
 ```
+
+Pipe mode is the natural unix fit (`<cmd> | cheese`). Most CLIs strip ANSI colors when their stdout isn't a tty, so use `CLICOLOR_FORCE=1 <cmd> | cheese` or the tool's `--color=always` equivalent when piping color-aware programs.
 
 ## Why
 
