@@ -26,6 +26,10 @@ pub struct Grid {
     pub cells: Vec<Cell>,
     /// `(row, col)` when the cursor is on-screen.
     pub cursor: Option<(usize, usize)>,
+    /// Number of rows from the top that carry non-blank content
+    /// (max non-blank row index + 1). Always at least 1.
+    /// The renderer uses this to crop trailing empty rows.
+    pub used_rows: usize,
 }
 
 /// A single cell with character + resolved colors + style flags.
@@ -113,12 +117,31 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
         None
     };
 
+    let used_rows = compute_used_rows(&cells, rows, cols);
+
     Ok(Grid {
         rows,
         cols,
         cells,
         cursor,
+        used_rows,
     })
+}
+
+/// Find the last row that contains any non-space character, +1.
+/// Clamps to at least 1 so the canvas is never zero-height.
+fn compute_used_rows(cells: &[Cell], rows: usize, cols: usize) -> usize {
+    for row in (0..rows).rev() {
+        let start = row * cols;
+        let end = start + cols;
+        if cells[start..end]
+            .iter()
+            .any(|c| c.ch != ' ' && c.ch != '\0')
+        {
+            return row + 1;
+        }
+    }
+    1
 }
 
 /// Map alacritty's tri-variant color to cheese's resolved `Color`.
@@ -222,5 +245,18 @@ mod tests {
             Color::Rgb(0xf7, 0x76, 0x8e) => {}
             other => panic!("expected tokyo-night red, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn used_rows_crops_to_last_non_blank_row() {
+        let grid = parse(b"line1\r\nline2\r\n", 10, 20).unwrap();
+        assert_eq!(grid.used_rows, 2);
+        assert_eq!(grid.rows, 20);
+    }
+
+    #[test]
+    fn used_rows_blank_input_is_one() {
+        let grid = parse(b"", 4, 8).unwrap();
+        assert_eq!(grid.used_rows, 1);
     }
 }

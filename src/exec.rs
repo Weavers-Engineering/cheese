@@ -1,6 +1,6 @@
 //! `cheese exec` flow: spawn the command in a PTY, parse the captured
-//! bytes through libghostty-vt, render the grid to a Pixmap, and write
-//! the encoded PNG to disk.
+//! bytes through the VT state machine, render the grid to a Pixmap, and
+//! write the encoded PNG to disk.
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
@@ -22,7 +22,9 @@ pub struct ExecArgs {
     pub cmd: Vec<String>,
     pub cols: u16,
     pub rows: u16,
-    pub output: PathBuf,
+    /// `Some(path)` writes the PNG to disk; `None` copies the image to
+    /// the system clipboard.
+    pub output: Option<PathBuf>,
     pub font_size: f32,
     pub padding: u32,
     pub chrome: Chrome,
@@ -41,12 +43,13 @@ pub enum Chrome {
 ///
 /// # Errors
 ///
-/// Returns `Err` when the PTY capture fails, the libghostty-vt parse
-/// rejects the captured bytes, the theme name is unknown, the pixmap
-/// allocation overflows, or the output path cannot be written.
+/// Returns `Err` when the PTY capture fails, the VT parser rejects the
+/// captured bytes, the theme name is unknown, the pixmap allocation
+/// overflows, or the output path cannot be written.
 pub fn run(args: ExecArgs) -> Result<()> {
     let captured = pty::run(&args.cmd, args.cols, args.rows)?;
-    let grid = vt::parse(&captured, args.cols as usize, args.rows as usize)?;
+    let stream = with_prompt(&args.cmd, &captured);
+    let grid = vt::parse(&stream, args.cols as usize, args.rows as usize)?;
     let theme = resolve_theme(&args.theme)?;
     let opts = RenderOpts {
         theme,
@@ -56,10 +59,41 @@ pub fn run(args: ExecArgs) -> Result<()> {
         no_shadow: args.no_shadow,
     };
     let pixmap = render::draw(&grid, &opts)?;
-    pixmap
-        .save_png(&args.output)
-        .with_context(|| format!("writing png to {}", args.output.display()))?;
-    eprintln!("wrote {}", args.output.display());
+    match args.output {
+        Some(path) => {
+            pixmap
+                .save_png(&path)
+                .with_context(|| format!("writing png to {}", path.display()))?;
+            eprintln!("wrote {}", path.display());
+        }
+        None => {
+            copy_to_clipboard(&pixmap).context("copying to clipboard")?;
+            eprintln!(
+                "copied to clipboard ({} x {})",
+                pixmap.width(),
+                pixmap.height()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Push the rendered pixmap onto the system clipboard as an image.
+///
+/// tiny-skia stores premultiplied RGBA8. cheese always paints opaque
+/// pixels (the theme background covers the canvas before any cell), so
+/// premultiplied bytes equal straight RGBA and we hand them to
+/// `arboard` as-is.
+fn copy_to_clipboard(pixmap: &tiny_skia::Pixmap) -> Result<()> {
+    let mut clipboard = arboard::Clipboard::new().context("opening clipboard")?;
+    let image = arboard::ImageData {
+        width: pixmap.width() as usize,
+        height: pixmap.height() as usize,
+        bytes: pixmap.data().to_vec().into(),
+    };
+    clipboard
+        .set_image(image)
+        .context("setting clipboard image")?;
     Ok(())
 }
 
@@ -70,4 +104,22 @@ fn resolve_theme(name: &str) -> Result<Theme> {
             "unknown theme {other:?}: v0.1 only ships tokyo-night-dark"
         )),
     }
+}
+
+/// Prepend a synthetic shell prompt line to the captured stream so the
+/// final render shows the command above its output.
+///
+/// The prompt symbol is `\x1b[32m\u{276f}\x1b[0m ` (green chevron) and
+/// is followed by the joined command and a CRLF. This makes
+/// `cheese exec "isd ps"` look like a real terminal session instead of
+/// raw output.
+fn with_prompt(cmd: &[String], captured: &[u8]) -> Vec<u8> {
+    const PROMPT: &[u8] = b"\x1b[32m\xe2\x9d\xaf\x1b[0m ";
+    let joined = cmd.join(" ");
+    let mut out = Vec::with_capacity(PROMPT.len() + joined.len() + 2 + captured.len());
+    out.extend_from_slice(PROMPT);
+    out.extend_from_slice(joined.as_bytes());
+    out.extend_from_slice(b"\r\n");
+    out.extend_from_slice(captured);
+    out
 }

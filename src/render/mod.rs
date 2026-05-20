@@ -37,7 +37,7 @@ pub fn draw(grid: &Grid, opts: &RenderOpts) -> Result<Pixmap> {
     let mut scratch = font::GlyphScratch::new(&mut font_system, opts.font_size);
 
     let inner_w = grid.cols as u32 * metrics.width;
-    let inner_h = grid.rows as u32 * metrics.height;
+    let inner_h = grid.used_rows as u32 * metrics.height;
     let chrome_h: u32 = match opts.chrome {
         Chrome::None => 0,
         Chrome::Mac => 0, // Phase 5 fills this in.
@@ -58,6 +58,9 @@ pub fn draw(grid: &Grid, opts: &RenderOpts) -> Result<Pixmap> {
         };
         for (i, c) in grid.cells.iter().enumerate() {
             let row = i / grid.cols;
+            if row >= grid.used_rows {
+                break;
+            }
             let col = i % grid.cols;
             let x = opts.padding + col as u32 * metrics.width;
             let y = opts.padding + chrome_h + row as u32 * metrics.height;
@@ -65,7 +68,9 @@ pub fn draw(grid: &Grid, opts: &RenderOpts) -> Result<Pixmap> {
         }
     }
 
-    if let Some((row, col)) = grid.cursor {
+    if let Some((row, col)) = grid.cursor
+        && row < grid.used_rows
+    {
         let x = opts.padding + col as u32 * metrics.width;
         let y = opts.padding + chrome_h + row as u32 * metrics.height;
         cursor::draw(
