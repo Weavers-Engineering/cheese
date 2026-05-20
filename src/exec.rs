@@ -1,18 +1,22 @@
 //! `cheese exec` flow: spawn the command in a PTY, parse the captured
-//! bytes through libghostty-vt, then (in later phases) hand the grid to
-//! the renderer.
+//! bytes through libghostty-vt, render the grid to a Pixmap, and write
+//! the encoded PNG to disk.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-use crate::{pty, vt};
+use crate::{
+    pty,
+    render::{self, RenderOpts},
+    theme::Theme,
+    vt,
+};
 
 /// Arguments accepted by `cheese exec`.
 ///
-/// Phase 2 only consumes `cmd`, `cols`, `rows`. The rendering knobs
-/// (`output`, `font_size`, `padding`, `chrome`, `theme`, `no_shadow`)
-/// are reserved here so the CLI surface is stable before the renderer
-/// lands in Phase 3.
+/// All fields drive either PTY sizing (`cols`, `rows`), rendering
+/// (`font_size`, `padding`, `chrome`, `theme`, `no_shadow`), or output
+/// (`output`).
 #[derive(Debug, Clone)]
 pub struct ExecArgs {
     pub cmd: Vec<String>,
@@ -33,20 +37,37 @@ pub enum Chrome {
     Mac,
 }
 
-/// Spawn the child, parse its output, and (later) render to PNG.
+/// Spawn the child, parse its output, render the grid, write the PNG.
 ///
 /// # Errors
 ///
-/// Returns `Err` when the PTY capture fails or the libghostty-vt parse
-/// rejects the captured bytes.
+/// Returns `Err` when the PTY capture fails, the libghostty-vt parse
+/// rejects the captured bytes, the theme name is unknown, the pixmap
+/// allocation overflows, or the output path cannot be written.
 pub fn run(args: ExecArgs) -> Result<()> {
     let captured = pty::run(&args.cmd, args.cols, args.rows)?;
     let grid = vt::parse(&captured, args.cols as usize, args.rows as usize)?;
-    eprintln!(
-        "captured {} bytes, parsed {}x{} grid",
-        captured.len(),
-        grid.rows,
-        grid.cols,
-    );
+    let theme = resolve_theme(&args.theme)?;
+    let opts = RenderOpts {
+        theme,
+        font_size: args.font_size,
+        padding: args.padding,
+        chrome: args.chrome,
+        no_shadow: args.no_shadow,
+    };
+    let pixmap = render::draw(&grid, &opts)?;
+    pixmap
+        .save_png(&args.output)
+        .with_context(|| format!("writing png to {}", args.output.display()))?;
+    eprintln!("wrote {}", args.output.display());
     Ok(())
+}
+
+fn resolve_theme(name: &str) -> Result<Theme> {
+    match name {
+        "tokyo-night-dark" => Ok(Theme::tokyo_night_dark()),
+        other => Err(anyhow::anyhow!(
+            "unknown theme {other:?}: v0.1 only ships tokyo-night-dark"
+        )),
+    }
 }
