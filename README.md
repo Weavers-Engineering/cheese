@@ -3,17 +3,17 @@
 Say cheese. Get a pixel-perfect screenshot of your terminal.
 
 ```sh
-cheese exec "isd ps"            # spawn in a PTY, copy PNG to clipboard
-isd ps | cheese                 # or pipe stdout straight in
-cheese exec -o out.png "isd ps" # write a file instead of clipboard
-cheese capture                  # v0.2: screenshot your running terminal pane
+cheese isd ps                # default: spawn in a PTY, copy PNG to clipboard
+cheese -o out.png ls -la     # write a file instead of clipboard
+cat log.txt | cheese         # pipe raw bytes through (lossy: source sees no tty)
+cheese exec ls               # explicit exec form, identical to the default
+cheese capture               # v0.2: screenshot your running terminal pane
 ```
 
-Pipe and exec produce the same render. When you do `isd ps | cheese`, cheese walks the process table for its pipe sibling, drains the dumb pipe-stripped bytes into the void, and re-runs `isd ps` inside its own PTY so the source sees `isatty=true` (colors + width detection intact). Same engine as `cheese exec`.
+**Two modes:**
 
-Tradeoff: the source command runs twice (once via your shell pipe, once via cheese's PTY). Fine for read-only commands. Don't pipe state-mutating commands through cheese.
-
-Long pipelines (`a | b | c | cheese`) and stdin redirected from a file (`cheese < log.txt`) fall back to rendering the raw bytes you piped in.
+- **`cheese <cmd>...`** spawns the command in a real PTY. The source sees `isatty(stdout) = true`, emits full ANSI colors, and gets your real terminal width. This is canonical: pass your command and get a render that matches what you'd see in the terminal.
+- **`... | cheese`** renders the raw piped bytes verbatim. Useful for log files, here-docs, programmatic feeds. Lossy when the source tool strips ANSI / collapses width on pipe (which is most modern CLIs). For tty-sensitive tools, use `cheese <cmd>` instead.
 
 ## Why
 
