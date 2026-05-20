@@ -241,7 +241,6 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
- "shell-words",
  "terminal_size",
  "tiny-skia",
 ]
