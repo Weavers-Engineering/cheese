@@ -79,6 +79,15 @@ enum Command {
 }
 
 fn main() -> Result<()> {
+    // Capture sibling argv BEFORE any other work. The race against
+    // fast pipe sources (`isd ps` finishes in <100ms) is real, so we
+    // shell out to `ps` first thing and only then parse our own args.
+    let sibling = if std::io::stdin().is_terminal() {
+        None
+    } else {
+        pipe::capture_sibling_argv()
+    };
+
     let cli = Cli::parse();
     match cli.command {
         Some(Command::Exec { flags, cmd }) => exec::run(ExecArgs {
@@ -97,7 +106,7 @@ fn main() -> Result<()> {
                 );
                 std::process::exit(64);
             }
-            pipe::run(build_request(cli.render))
+            pipe::run(build_request(cli.render), sibling)
         }
     }
 }
