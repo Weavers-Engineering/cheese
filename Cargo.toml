@@ -11,3 +11,5 @@ description = "say cheese: pixel-perfect screenshots of your terminal"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+portable-pty = "0.9"
+libghostty-vt = "0.1"

@@ -1,13 +1,13 @@
 //! `cheese`: say cheese, get a screenshot of your terminal.
 //!
-//! v0.0.1 ships the chassis: clap-driven subcommands, version, exit shape.
-//! v0.1 adds `cheese exec <cmd>`: run a command in a real PTY, capture
-//! the full ANSI stream, render to PNG with operator-grade fidelity.
-//! v0.2 adds `cheese capture`: pull the running terminal pane's
-//! contents via terminal-RPC (iTerm2, Kitty, Ghostty).
+//! v0.0.1 shipped the chassis: clap-driven subcommands, version, exit
+//! shape. Phase 2 wires `cheese exec` to a real PTY + libghostty-vt
+//! state extraction; the renderer lands in Phase 3.
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+use cheese::exec::{self, Chrome, ExecArgs};
 
 /// Take a screenshot of your terminal.
 ///
@@ -27,6 +27,27 @@ enum Command {
         /// Output file (.png, .svg, .webp). Defaults to ./cheese.png.
         #[arg(short, long, default_value = "cheese.png")]
         output: String,
+        /// Virtual terminal columns.
+        #[arg(short = 'c', long, default_value_t = 120)]
+        cols: u16,
+        /// Virtual terminal rows.
+        #[arg(short = 'r', long, default_value_t = 40)]
+        rows: u16,
+        /// Font size in points (Phase 3+).
+        #[arg(short = 's', long, default_value_t = 14.0)]
+        font_size: f32,
+        /// Inner padding around the cell region in pixels (Phase 3+).
+        #[arg(long, default_value_t = 24)]
+        padding: u32,
+        /// Window chrome style (Phase 5+).
+        #[arg(long, value_enum, default_value_t = Chrome::None)]
+        chrome: Chrome,
+        /// Theme name. v0.1 only ships `tokyo-night-dark`.
+        #[arg(long, default_value = "tokyo-night-dark")]
+        theme: String,
+        /// Skip the drop shadow under the chrome (Phase 5+).
+        #[arg(long, default_value_t = false)]
+        no_shadow: bool,
         /// The command and arguments to run.
         #[arg(required = true, trailing_var_arg = true)]
         cmd: Vec<String>,
@@ -39,12 +60,27 @@ enum Command {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Exec { output, cmd } => {
-            eprintln!("cheese exec: pty + vt100 + render not yet wired (v0.1).");
-            eprintln!("  would run: {}", cmd.join(" "));
-            eprintln!("  would write: {output}");
-            std::process::exit(64);
-        }
+        Command::Exec {
+            output,
+            cols,
+            rows,
+            font_size,
+            padding,
+            chrome,
+            theme,
+            no_shadow,
+            cmd,
+        } => exec::run(ExecArgs {
+            cmd,
+            cols,
+            rows,
+            output: output.into(),
+            font_size,
+            padding,
+            chrome,
+            theme,
+            no_shadow,
+        }),
         Command::Capture => {
             eprintln!("cheese capture: terminal-RPC pane capture not yet wired (v0.2).");
             std::process::exit(64);
