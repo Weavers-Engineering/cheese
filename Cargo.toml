@@ -18,8 +18,7 @@ cosmic-text = "0.12"
 png = "0.17"
 arboard = "3"
 terminal_size = "0.4"
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
-nix = { version = "0.30", features = ["process"] }
+shell-words = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

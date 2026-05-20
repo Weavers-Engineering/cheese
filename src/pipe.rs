@@ -1,33 +1,40 @@
-//! `cheese` pipe flow: when stdin is a pipe, try to re-execute the
-//! sibling command in a real PTY so the source sees `isatty=true`
-//! (colors + width detection intact). Fall back to rendering the raw
-//! piped bytes when the introspection fails (complex pipelines, very
-//! fast siblings that already exited, sources not exposed in the
-//! process table).
+//! `cheese` pipe flow: when stdin is a pipe, capture the sibling
+//! command IMMEDIATELY at startup and re-execute it inside a real PTY
+//! so the source sees `isatty(stdout)=true` (colors + width detection
+//! intact). Fall back to rendering raw piped bytes when sibling
+//! discovery fails (file redirection, complex pipelines, sources that
+//! already exited).
 //!
-//! Tradeoff: simple pipes like `isd ps | cheese` run the source
-//! command twice. Once via the shell-pipe (cheese discards those
-//! bytes) and once via cheese's own PTY (the bytes we actually
-//! render). Worth it for read-only commands; users should not pipe
-//! state-mutating commands through cheese anyway.
+//! Detection shells out to `ps -A -o pid=,pgid=,args=` and filters by
+//! process group. `ps` reads `KERN_PROCARGS2` on macOS, so the full
+//! argv comes back intact. An earlier `sysinfo`-based implementation
+//! dropped argv to argv\[0\] only on macOS, which broke `isd ps`
+//! into `isd` (no subcommand).
 
 use anyhow::{Context, Result};
 use std::io::Read;
+use std::process::Command;
 
 use crate::exec::{self, ExecArgs, RenderRequest, render_and_emit};
 
 /// Drain stdin and render the captured bytes, or re-exec the sibling
 /// command in a PTY when we can identify it.
 ///
+/// `sibling` is captured by `capture_sibling_argv()` at the very top of
+/// `main()` so the discovery happens before any clap / setup overhead,
+/// maximizing the window before fast sources like `isd ps` exit.
+///
 /// # Errors
 ///
 /// Returns `Err` when stdin read fails or the underlying render or
 /// re-exec pipeline fails.
-pub fn run(req: RenderRequest) -> Result<()> {
-    if let Some(cmd) = detect_pipe_source() {
+pub fn run(req: RenderRequest, sibling: Option<Vec<String>>) -> Result<()> {
+    if let Some(cmd) = sibling {
+        eprintln!("cheese: re-running pipe sibling in PTY: {}", cmd.join(" "));
         drain_stdin_silent();
         return exec::run(ExecArgs { cmd, render: req });
     }
+    eprintln!("cheese: no single pipe sibling found, rendering raw bytes");
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
@@ -36,57 +43,76 @@ pub fn run(req: RenderRequest) -> Result<()> {
     render_and_emit(&bytes, &req)
 }
 
-/// Walk the process table for sibling processes (same process group
-/// as cheese, different PID). Return argv of the unique sibling when
-/// exactly one exists; otherwise `None` so the caller falls back to
-/// raw-bytes rendering.
+/// Walk processes in our process group via `ps -A`. Return argv when
+/// exactly one non-cheese sibling exists in the same pgrp. Called once
+/// at the top of `main()` before clap parsing so the race against
+/// fast sources is as small as possible.
 ///
-/// Single-sibling is the `<cmd> | cheese` shape every user means by
-/// "pipe a command into cheese". Long pipelines (`a | b | c | cheese`)
-/// would require reconstructing the chain order, which is fragile;
-/// raw rendering handles them adequately.
-fn detect_pipe_source() -> Option<Vec<String>> {
-    let my_pid = std::process::id() as i32;
-    let my_pgrp = nix::unistd::getpgrp().as_raw();
+/// Returns `None` when 0 or >=2 siblings live in the pgrp, when `ps`
+/// cannot be run, or when shell-word splitting of `ps`'s args field
+/// fails.
+pub fn capture_sibling_argv() -> Option<Vec<String>> {
+    let my_pid: i64 = std::process::id() as i64;
+    let my_pgrp: i64 = unsafe { getpgrp() as i64 };
 
-    let sys = sysinfo::System::new_all();
+    let output = Command::new("ps")
+        .args(["-A", "-o", "pid=,pgid=,args="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+
     let mut found: Option<Vec<String>> = None;
     let mut count = 0_usize;
-
-    for proc in sys.processes().values() {
-        let pid = proc.pid().as_u32() as i32;
-        if pid == my_pid {
-            continue;
-        }
-        let nix_pid = nix::unistd::Pid::from_raw(pid);
-        let pgid = match nix::unistd::getpgid(Some(nix_pid)) {
-            Ok(p) => p.as_raw(),
+    for line in stdout.lines() {
+        let trimmed = line.trim_start();
+        let mut it = trimmed
+            .splitn(3, char::is_whitespace)
+            .filter(|s| !s.is_empty());
+        let pid_s = match it.next() {
+            Some(s) => s,
+            None => continue,
+        };
+        let pgid_s = match it.next() {
+            Some(s) => s,
+            None => continue,
+        };
+        let args = it.next().unwrap_or("");
+        let pid: i64 = match pid_s.parse() {
+            Ok(n) => n,
             Err(_) => continue,
         };
-        if pgid != my_pgrp {
+        let pgid: i64 = match pgid_s.parse() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        if pid == my_pid || pgid != my_pgrp {
             continue;
         }
         count += 1;
         if count > 1 {
             return None;
         }
-        let argv: Vec<String> = proc
-            .cmd()
-            .iter()
-            .map(|s| s.to_string_lossy().to_string())
-            .collect();
+        let argv = shell_words::split(args).ok()?;
         if argv.is_empty() {
             return None;
         }
         found = Some(argv);
     }
-
     found
 }
 
-/// Read stdin to EOF and throw the bytes away. Used when we found a
-/// pipe sibling: we still need to drain so the source does not
-/// SIGPIPE while we are setting up its replacement PTY run.
+// `getpgrp(3)`. Always returns the calling process's pgrp; never
+// fails. Pulling `nix` for this alone was over budget.
+unsafe extern "C" {
+    fn getpgrp() -> i32;
+}
+
+/// Read stdin to EOF and discard. Used after we found a pipe sibling
+/// so the source can finish writing without SIGPIPE while we set up
+/// its replacement PTY run.
 fn drain_stdin_silent() {
     let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
 }
