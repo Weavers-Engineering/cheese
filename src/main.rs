@@ -6,8 +6,31 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use terminal_size::{Height, Width, terminal_size};
 
 use cheese::exec::{self, Chrome, ExecArgs};
+
+const DEFAULT_COLS: u16 = 120;
+const DEFAULT_ROWS: u16 = 40;
+
+/// Read the controlling terminal's dimensions, falling back to the
+/// hard-coded defaults when stdout / stderr / stdin is not a tty (CI,
+/// pipe, daemon, etc.).
+fn detect_size(explicit_cols: Option<u16>, explicit_rows: Option<u16>) -> (u16, u16) {
+    let detected = terminal_size();
+    let detected_cols = match detected {
+        Some((Width(w), _)) if w > 0 => w,
+        _ => DEFAULT_COLS,
+    };
+    let detected_rows = match detected {
+        Some((_, Height(h))) if h > 0 => h,
+        _ => DEFAULT_ROWS,
+    };
+    (
+        explicit_cols.unwrap_or(detected_cols),
+        explicit_rows.unwrap_or(detected_rows),
+    )
+}
 
 /// Take a screenshot of your terminal.
 ///
@@ -28,12 +51,14 @@ enum Command {
         /// to the system clipboard.
         #[arg(short, long)]
         output: Option<String>,
-        /// Virtual terminal columns.
-        #[arg(short = 'c', long, default_value_t = 120)]
-        cols: u16,
-        /// Virtual terminal rows.
-        #[arg(short = 'r', long, default_value_t = 40)]
-        rows: u16,
+        /// Virtual terminal columns. Defaults to your terminal's
+        /// width (or 120 when cheese can't read a tty).
+        #[arg(short = 'c', long)]
+        cols: Option<u16>,
+        /// Virtual terminal rows. Defaults to your terminal's height
+        /// (or 40 when cheese can't read a tty).
+        #[arg(short = 'r', long)]
+        rows: Option<u16>,
         /// Font size in points (Phase 3+).
         #[arg(short = 's', long, default_value_t = 14.0)]
         font_size: f32,
@@ -71,17 +96,20 @@ fn main() -> Result<()> {
             theme,
             no_shadow,
             cmd,
-        } => exec::run(ExecArgs {
-            cmd,
-            cols,
-            rows,
-            output: output.map(Into::into),
-            font_size,
-            padding,
-            chrome,
-            theme,
-            no_shadow,
-        }),
+        } => {
+            let (cols, rows) = detect_size(cols, rows);
+            exec::run(ExecArgs {
+                cmd,
+                cols,
+                rows,
+                output: output.map(Into::into),
+                font_size,
+                padding,
+                chrome,
+                theme,
+                no_shadow,
+            })
+        }
         Command::Capture => {
             eprintln!("cheese capture: terminal-RPC pane capture not yet wired (v0.2).");
             std::process::exit(64);
