@@ -9,13 +9,11 @@ cheese exec -o out.png "isd ps" # write a file instead of clipboard
 cheese capture                  # v0.2: screenshot your running terminal pane
 ```
 
-Pipe mode is the natural unix fit (`<cmd> | cheese`). Source tools usually disable two things when their stdout isn't a tty: ANSI colors and width detection. To recover both, set the relevant env vars on the source command:
+Pipe and exec produce the same render. When you do `isd ps | cheese`, cheese walks the process table for its pipe sibling, drains the dumb pipe-stripped bytes into the void, and re-runs `isd ps` inside its own PTY so the source sees `isatty=true` (colors + width detection intact). Same engine as `cheese exec`.
 
-```sh
-CLICOLOR_FORCE=1 COLUMNS=$(tput cols) isd ps | cheese
-```
+Tradeoff: the source command runs twice (once via your shell pipe, once via cheese's PTY). Fine for read-only commands. Don't pipe state-mutating commands through cheese.
 
-cheese itself renders at your terminal's width (auto-detected); the canvas auto-fits to the actual content's last non-blank row and column.
+Long pipelines (`a | b | c | cheese`) and stdin redirected from a file (`cheese < log.txt`) fall back to rendering the raw bytes you piped in.
 
 ## Why
 
