@@ -24,9 +24,10 @@ struct Cli {
 enum Command {
     /// Run a command in a real PTY and render its output to an image.
     Exec {
-        /// Output file (.png, .svg, .webp). Defaults to ./cheese.png.
-        #[arg(short, long, default_value = "cheese.png")]
-        output: String,
+        /// Write the PNG to this path. Defaults to copying the image
+        /// to the system clipboard.
+        #[arg(short, long)]
+        output: Option<String>,
         /// Virtual terminal columns.
         #[arg(short = 'c', long, default_value_t = 120)]
         cols: u16,
@@ -74,7 +75,7 @@ fn main() -> Result<()> {
             cmd,
             cols,
             rows,
-            output: output.into(),
+            output: output.map(Into::into),
             font_size,
             padding,
             chrome,

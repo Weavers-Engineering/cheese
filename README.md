@@ -3,8 +3,9 @@
 Say cheese. Get a pixel-perfect screenshot of your terminal.
 
 ```sh
-cheese exec "isd ps"   # v0.1: run the command in a real PTY, render to PNG
-cheese capture          # v0.2: screenshot your running terminal pane
+cheese exec "isd ps"            # copies the rendered PNG to your clipboard
+cheese exec -o out.png "isd ps" # writes a file instead
+cheese capture                  # v0.2: screenshot your running terminal pane
 ```
 
 ## Why
