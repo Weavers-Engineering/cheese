@@ -97,9 +97,9 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
                 bg: resolve_color(alac_cell.bg),
                 bold: alac_cell.flags.contains(Flags::BOLD),
                 italic: alac_cell.flags.contains(Flags::ITALIC),
-                underline: alac_cell.flags.intersects(
-                    Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE | Flags::UNDERCURL,
-                ),
+                underline: alac_cell
+                    .flags
+                    .intersects(Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE | Flags::UNDERCURL),
                 strikethrough: alac_cell.flags.contains(Flags::STRIKEOUT),
             });
         }
@@ -186,13 +186,7 @@ fn indexed_to_rgb(idx: u8) -> Color {
         let r = (n / 36) % 6;
         let g = (n / 6) % 6;
         let b = n % 6;
-        let lift = |v: u8| -> u8 {
-            if v == 0 {
-                0
-            } else {
-                55 + 40 * v
-            }
-        };
+        let lift = |v: u8| -> u8 { if v == 0 { 0 } else { 55 + 40 * v } };
         return Color::Rgb(lift(r), lift(g), lift(b));
     }
     let v = 8 + (idx - 232) * 10;
