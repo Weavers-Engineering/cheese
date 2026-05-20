@@ -36,7 +36,7 @@ pub fn draw(grid: &Grid, opts: &RenderOpts) -> Result<Pixmap> {
     let metrics = font::measure(&mut font_system, opts.font_size);
     let mut scratch = font::GlyphScratch::new(&mut font_system, opts.font_size);
 
-    let inner_w = grid.cols as u32 * metrics.width;
+    let inner_w = grid.used_cols as u32 * metrics.width;
     let inner_h = grid.used_rows as u32 * metrics.height;
     let chrome_h: u32 = match opts.chrome {
         Chrome::None => 0,
@@ -62,6 +62,9 @@ pub fn draw(grid: &Grid, opts: &RenderOpts) -> Result<Pixmap> {
                 break;
             }
             let col = i % grid.cols;
+            if col >= grid.used_cols {
+                continue;
+            }
             let x = opts.padding + col as u32 * metrics.width;
             let y = opts.padding + chrome_h + row as u32 * metrics.height;
             cell::draw(&mut ctx, *c, x, y);
