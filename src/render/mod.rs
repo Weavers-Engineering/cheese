@@ -3,7 +3,8 @@
 //! Takes the `Grid` extracted by `vt::parse` and paints a `Pixmap` that
 //! can be encoded as PNG. Layout is row-major: cell `(row, col)` lands
 //! at pixel `(padding + col * cell_w, padding + chrome_h + row * cell_h)`.
-//! Chrome is a Phase 5 stub here; Phase 3 always renders a plain canvas.
+//! When `chrome` is `Chrome::Mac`, the canvas reserves a 60px strip at
+//! the top for the macOS traffic-light buttons (see `chrome.rs`).
 
 use anyhow::{Context, Result};
 use tiny_skia::Pixmap;
@@ -11,6 +12,7 @@ use tiny_skia::Pixmap;
 use crate::{exec::Chrome, theme::Theme, vt::Grid};
 
 pub mod cell;
+pub mod chrome;
 pub mod cursor;
 pub mod font;
 
@@ -20,7 +22,8 @@ pub struct RenderOpts {
     pub font_size: f32,
     pub padding: u32,
     pub chrome: Chrome,
-    /// Phase 5 will use this. Held here so the option surface is stable.
+    /// Drop-shadow toggle. v0.1 never paints a shadow, so this flag is
+    /// a stub that holds the option surface stable for v0.2.
     pub no_shadow: bool,
 }
 
@@ -38,15 +41,16 @@ pub fn draw(grid: &Grid, opts: &RenderOpts) -> Result<Pixmap> {
 
     let inner_w = grid.used_cols as u32 * metrics.width;
     let inner_h = grid.used_rows as u32 * metrics.height;
-    let chrome_h: u32 = match opts.chrome {
-        Chrome::None => 0,
-        Chrome::Mac => 0, // Phase 5 fills this in.
-    };
+    let chrome_h = chrome::height(opts.chrome);
     let w = inner_w + opts.padding * 2;
     let h = inner_h + opts.padding * 2 + chrome_h;
 
     let mut pixmap = Pixmap::new(w, h).context("allocating pixmap")?;
     pixmap.fill(Theme::parse_color(&opts.theme.background));
+
+    if matches!(opts.chrome, Chrome::Mac) {
+        chrome::draw_mac(&mut pixmap, &opts.theme);
+    }
 
     {
         let mut ctx = cell::CellContext {
@@ -83,6 +87,7 @@ pub fn draw(grid: &Grid, opts: &RenderOpts) -> Result<Pixmap> {
             metrics.width,
             metrics.height,
             &opts.theme,
+            cursor::CursorStyle::default(),
         );
     }
 
