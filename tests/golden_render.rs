@@ -39,22 +39,20 @@ const LS_LA_ANSI: &[u8] = concat!(
 )
 .as_bytes();
 
-// Torture test: every 8 normal fg color, every 8 bg color, the three
-// style flags we exercise via the golden (bold, underline,
-// strikethrough), a 256-color sample, and a 24-bit RGB sample. Italic
-// is intentionally omitted: the bundled FontSystem ships
-// JetBrainsMono Regular only, and cosmic-text 0.12 panics with
-// "no default font found" when shaping an italic span has zero face
-// matches. Re-add the italic block once the renderer either loads an
-// italic face or synthesises italic via skew. Each block resets back
-// to default before the next so colors do not leak across cells.
+// Torture test: every 8 normal fg color, every 8 bg color, the four
+// style flags we exercise (bold, italic, underline, strikethrough),
+// a 256-color sample, and a 24-bit RGB sample. Italic is synthesised
+// at paint time by shearing the Regular glyph horizontally (the
+// bundled FontSystem ships JetBrainsMono Regular only); see
+// `src/render/cell.rs::ITALIC_SKEW_RADIANS`. Each block resets back to
+// default before the next so colors do not leak across cells.
 const ANSI_RAINBOW_ANSI: &[u8] = concat!(
     // 8 fg colors.
     "fg: \x1b[30mK\x1b[31mR\x1b[32mG\x1b[33mY\x1b[34mB\x1b[35mM\x1b[36mC\x1b[37mW\x1b[0m\r\n",
     // 8 bg colors.
     "bg: \x1b[40m K \x1b[41m R \x1b[42m G \x1b[43m Y \x1b[44m B \x1b[45m M \x1b[46m C \x1b[47m W \x1b[0m\r\n",
-    // Styles (italic excluded; see comment above).
-    "style: \x1b[1mbold\x1b[0m \x1b[4munder\x1b[0m \x1b[9mstrike\x1b[0m\r\n",
+    // Styles.
+    "style: \x1b[1mbold\x1b[0m \x1b[3mitalic\x1b[0m \x1b[4munder\x1b[0m \x1b[9mstrike\x1b[0m\r\n",
     // 256-color sample: pick a few representative slots.
     "256: \x1b[38;5;196mR\x1b[38;5;46mG\x1b[38;5;21mB\x1b[38;5;226mY\x1b[38;5;201mM\x1b[0m\r\n",
     // 24-bit RGB sample.
