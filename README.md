@@ -30,9 +30,9 @@ v0.0.x: working toward v0.1.
 - [x] **Phase 1**: CLI chassis (clap, version, exit shape).
 - [x] **Phase 2**: PTY capture (`portable-pty`) + VT state parse (`alacritty_terminal`).
 - [x] **Phase 3**: Renderer (`tiny-skia` + `cosmic-text`), Tokyo Night theme, JetBrains Mono Nerd Font.
-- [ ] **Phase 4**: Golden-PNG regression tests.
-- [ ] **Phase 5**: `--chrome=mac`, padding, cursor polish.
-- [ ] **Phase 6**: `cargo-dist` prebuilt binaries (v0.1.0 release).
+- [x] **Phase 4**: Golden-PNG regression tests.
+- [x] **Phase 5**: `--chrome=mac`, padding, cursor polish.
+- [x] **Phase 6**: `cargo-dist` prebuilt binaries (v0.1.0 release).
 
 After v0.1:
 
@@ -41,11 +41,17 @@ After v0.1:
 
 ## Install
 
+Prebuilt binary (darwin-arm64, darwin-x86_64, linux-x86_64, linux-aarch64):
+
 ```sh
-cargo install cheese
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Weavers-Engineering/cheese/releases/latest/download/cheese-installer.sh | sh
 ```
 
-Pure Rust, no external toolchain. Once `cargo-dist` lands (Phase 6), prebuilt darwin-arm64, darwin-x86_64, linux-x86_64, and linux-aarch64 binaries will also ship on GitHub Releases.
+From source (Rust 1.85+, pure Rust, no external toolchain):
+
+```sh
+cargo install --git https://github.com/Weavers-Engineering/cheese
+```
 
 ## License
 
