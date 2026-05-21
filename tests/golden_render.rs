@@ -8,6 +8,7 @@
 //! intentional render change). Without the env var, divergence fails
 //! the test.
 
+use cheese::exec::Chrome;
 use cheese::{render_canned_to_png, test_render_opts};
 
 // `isd ps`-style table: a header row, three node rows with colored
@@ -62,7 +63,17 @@ const ANSI_RAINBOW_ANSI: &[u8] = concat!(
 
 fn run_golden(bytes: &[u8], cols: usize, rows: usize, golden_path: &str) {
     let opts = test_render_opts();
-    let actual = render_canned_to_png(bytes, cols, rows, &opts).expect("render must succeed");
+    run_golden_with(bytes, cols, rows, &opts, golden_path);
+}
+
+fn run_golden_with(
+    bytes: &[u8],
+    cols: usize,
+    rows: usize,
+    opts: &cheese::render::RenderOpts,
+    golden_path: &str,
+) {
+    let actual = render_canned_to_png(bytes, cols, rows, opts).expect("render must succeed");
 
     if std::env::var("BLESS_GOLDEN").is_ok() {
         std::fs::write(golden_path, &actual).expect("write golden");
@@ -98,4 +109,11 @@ fn ls_la_renders_byte_identical() {
 #[test]
 fn ansi_rainbow_renders_byte_identical() {
     run_golden(ANSI_RAINBOW_ANSI, 80, 8, "tests/golden/ansi-rainbow.png");
+}
+
+#[test]
+fn isd_ps_with_mac_chrome_renders_byte_identical() {
+    let mut opts = test_render_opts();
+    opts.chrome = Chrome::Mac;
+    run_golden_with(ISD_PS_ANSI, 80, 8, &opts, "tests/golden/chrome-mac.png");
 }

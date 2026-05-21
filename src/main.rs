@@ -60,13 +60,16 @@ struct RenderFlags {
     /// Inner padding around the cell region in pixels.
     #[arg(long, default_value_t = 24)]
     padding: u32,
-    /// Window chrome style (Phase 5+).
+    /// Window chrome style. `none` (default) renders the cell region
+    /// only; `mac` adds a 60px macOS-style strip with traffic-light
+    /// circles above the cells.
     #[arg(long, value_enum, default_value_t = Chrome::None)]
     chrome: Chrome,
     /// Theme name. v0.1 only ships `tokyo-night-dark`.
     #[arg(long, default_value = "tokyo-night-dark")]
     theme: String,
-    /// Skip the drop shadow under the chrome (Phase 5+).
+    /// Skip the drop shadow under the chrome. v0.1 never paints a
+    /// shadow; this flag is a forward-compat placeholder for v0.2.
     #[arg(long, default_value_t = false)]
     no_shadow: bool,
 }
