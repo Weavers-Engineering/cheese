@@ -1,5 +1,7 @@
 # cheese
 
+[![CI](https://github.com/Weavers-Engineering/cheese/actions/workflows/ci.yml/badge.svg)](https://github.com/Weavers-Engineering/cheese/actions/workflows/ci.yml)
+
 Say cheese. Get a pixel-perfect screenshot of your terminal.
 
 ```sh
