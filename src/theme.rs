@@ -1,13 +1,14 @@
 //! Theme definitions and palette resolution.
 //!
-//! v0.1 ships Tokyo Night Dark as the only theme. The theme schema is JSON
-//! (background, foreground, cursor, selection, 16-color palette); the
-//! default ships embedded in the binary via `include_str!`. v0.2 adds
-//! operator-supplied themes via `--theme-file`.
+//! Two themes ship today: Tokyo Night Dark (default) and Ayu Dark. The
+//! schema is JSON (background, foreground, cursor, selection, 16-color
+//! palette); each theme ships embedded in the binary via `include_str!`.
+//! v0.2 adds operator-supplied themes via `--theme-file`.
 
 use serde::Deserialize;
 
 const TOKYO_NIGHT_DARK_JSON: &str = include_str!("../assets/themes/tokyo-night-dark.json");
+const AYU_DARK_JSON: &str = include_str!("../assets/themes/ayu-dark.json");
 
 /// A complete terminal color scheme: chrome colors plus a 16-slot palette.
 #[derive(Debug, Clone, Deserialize)]
@@ -55,6 +56,16 @@ impl Theme {
     /// runtime error a caller can recover from.
     pub fn tokyo_night_dark() -> Self {
         serde_json::from_str(TOKYO_NIGHT_DARK_JSON).expect("bundled theme parses")
+    }
+
+    /// The bundled Ayu Dark theme.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the embedded JSON asset fails to parse. Build-time concern,
+    /// not a runtime one.
+    pub fn ayu_dark() -> Self {
+        serde_json::from_str(AYU_DARK_JSON).expect("bundled theme parses")
     }
 
     /// Parse a `#rrggbb` hex string into a `tiny_skia::Color`.

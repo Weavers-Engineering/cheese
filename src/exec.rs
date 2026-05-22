@@ -111,8 +111,9 @@ fn copy_to_clipboard(pixmap: &tiny_skia::Pixmap) -> Result<()> {
 fn resolve_theme(name: &str) -> Result<Theme> {
     match name {
         "tokyo-night-dark" => Ok(Theme::tokyo_night_dark()),
+        "ayu-dark" => Ok(Theme::ayu_dark()),
         other => Err(anyhow::anyhow!(
-            "unknown theme {other:?}: v0.1 only ships tokyo-night-dark"
+            "unknown theme {other:?}: bundled themes are tokyo-night-dark, ayu-dark"
         )),
     }
 }

@@ -65,7 +65,7 @@ struct RenderFlags {
     /// circles above the cells.
     #[arg(long, value_enum, default_value_t = Chrome::None)]
     chrome: Chrome,
-    /// Theme name. v0.1 only ships `tokyo-night-dark`.
+    /// Theme name. Bundled: `tokyo-night-dark`, `ayu-dark`.
     #[arg(long, default_value = "tokyo-night-dark")]
     theme: String,
     /// Skip the drop shadow under the chrome. v0.1 never paints a
