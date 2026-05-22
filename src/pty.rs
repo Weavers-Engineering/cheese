@@ -284,8 +284,20 @@ impl DsrScanner {
                     }
                     None
                 } else {
+                    // Cursor position reply: row 2, col 1. We claim row 2
+                    // (1-indexed, so the second row from the top) because
+                    // exec.rs prepends a one-line synthetic shell prompt
+                    // (e.g. `> isd ssh`) onto the captured stream. The
+                    // parser's cursor lands on row 1 after that prompt's
+                    // trailing newline. Inline TUIs (ratatui's
+                    // Viewport::Inline) draw BELOW the responded cursor
+                    // position; replying `1;1` would let the TUI overwrite
+                    // the prompt row. `2;1` preserves the prompt above
+                    // and gives the TUI its own band underneath. When the
+                    // prompt is disabled or absent, the operator just sees
+                    // a single blank line above the TUI, not a regression.
                     let reply: Option<&'static [u8]> = match (self.args.as_slice(), b) {
-                        (b"6", b'n') => Some(b"\x1b[1;1R"),
+                        (b"6", b'n') => Some(b"\x1b[2;1R"),
                         (b"5", b'n') => Some(b"\x1b[0n"),
                         (b"", b'c') => Some(b"\x1b[?1;2c"),
                         _ => None,
@@ -662,7 +674,7 @@ mod tests {
 
     #[test]
     fn dsr_scanner_cursor_position_query() {
-        assert_eq!(scan_all(b"\x1b[6n"), b"\x1b[1;1R");
+        assert_eq!(scan_all(b"\x1b[6n"), b"\x1b[2;1R");
     }
 
     #[test]
@@ -688,12 +700,12 @@ mod tests {
     fn dsr_scanner_prefix_text_then_query() {
         // The scanner must skip over plain text and still recognise a
         // query that appears mid-stream.
-        assert_eq!(scan_all(b"hello\x1b[6nworld"), b"\x1b[1;1R");
+        assert_eq!(scan_all(b"hello\x1b[6nworld"), b"\x1b[2;1R");
     }
 
     #[test]
     fn dsr_scanner_back_to_back_queries() {
-        assert_eq!(scan_all(b"\x1b[6n\x1b[5n"), b"\x1b[1;1R\x1b[0n");
+        assert_eq!(scan_all(b"\x1b[6n\x1b[5n"), b"\x1b[2;1R\x1b[0n");
     }
 
     #[test]
@@ -706,7 +718,7 @@ mod tests {
         assert!(s.feed(b'[').is_none());
         assert!(s.feed(b'6').is_none());
         let reply = s.feed(b'n').expect("final byte should emit a reply");
-        assert_eq!(reply, b"\x1b[1;1R");
+        assert_eq!(reply, b"\x1b[2;1R");
     }
 
     #[test]
@@ -716,7 +728,7 @@ mod tests {
         // `CSI 0m` (SGR reset) is not a query: must not reply.
         assert!(scan_all(b"\x1b[0m").is_empty());
         // `CSI 6n` mid-text followed by other CSI must only reply once.
-        assert_eq!(scan_all(b"\x1b[2J\x1b[6n\x1b[H"), b"\x1b[1;1R");
+        assert_eq!(scan_all(b"\x1b[2J\x1b[6n\x1b[H"), b"\x1b[2;1R");
     }
 
     #[test]
@@ -730,7 +742,7 @@ mod tests {
         assert!(s.feed(b'n').is_none());
         // And a fresh query should still work after the abort.
         let reply = scan_all_from(&mut s, b"\x1b[6n");
-        assert_eq!(reply, b"\x1b[1;1R");
+        assert_eq!(reply, b"\x1b[2;1R");
     }
 
     /// Helper: continue feeding into an existing scanner.
