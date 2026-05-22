@@ -237,6 +237,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "cosmic-text",
+ "humantime",
  "png 0.17.16",
  "portable-pty",
  "serde",
@@ -543,6 +544,12 @@ checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
 dependencies = [
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "humantime"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "image"

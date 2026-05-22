@@ -11,6 +11,7 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use std::io::IsTerminal;
+use std::time::Duration;
 use terminal_size::{Height, Width, terminal_size};
 
 use cheese::exec::{self, Chrome, ExecArgs, RenderRequest};
@@ -72,6 +73,26 @@ struct RenderFlags {
     /// shadow; this flag is a forward-compat placeholder for v0.2.
     #[arg(long, default_value_t = false)]
     no_shadow: bool,
+    /// Render after N of no PTY output (idle detection). Use to
+    /// snapshot interactive TUIs that never exit on their own (e.g.
+    /// `cheese isd ssh` opening fzf). Accepts forms like `500ms`,
+    /// `2s`, `1m30s`. Pass `0` to disable and wait for natural exit.
+    #[arg(long, value_parser = parse_duration, default_value = "1s")]
+    idle: Duration,
+    /// Hard cap on real wall-clock time the child can run. When this
+    /// fires, the child is terminated and the current VT buffer is
+    /// rendered. Pairs with `--idle`: whichever fires first wins.
+    /// Defaults to no cap.
+    #[arg(long, value_parser = parse_duration)]
+    timeout: Option<Duration>,
+}
+
+/// Parse `humantime`-style duration strings (`500ms`, `2s`, `1m30s`).
+///
+/// Separated out so clap's value_parser can take a function pointer
+/// instead of relying on humantime's optional clap integration.
+fn parse_duration(s: &str) -> Result<Duration, String> {
+    humantime::parse_duration(s).map_err(|e| format!("invalid duration {s:?}: {e}"))
 }
 
 #[derive(Subcommand, Debug)]
@@ -139,6 +160,8 @@ fn build_request(flags: RenderFlags) -> RenderRequest {
         chrome: flags.chrome,
         theme: flags.theme,
         no_shadow: flags.no_shadow,
+        idle: flags.idle,
+        timeout: flags.timeout,
     }
 }
 
