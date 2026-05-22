@@ -209,8 +209,14 @@ fn capture_loop(
         // Hard timeout check before computing the next wait.
         if let Some(t) = config.timeout {
             if now.saturating_duration_since(start) >= t {
-                let _ = killer.kill();
+                // Drain queued bytes BEFORE killing. If we kill first,
+                // the child's graceful-exit cleanup (e.g. a ratatui TUI
+                // emitting `CSI 1049l` to leave the alternate screen)
+                // ends up in our buffer and swaps the parser's active
+                // grid back to the empty main screen, producing a blank
+                // render.
                 drain_remaining(rx, &mut buffer);
+                let _ = killer.kill();
                 return CaptureOutput {
                     bytes: buffer,
                     reason: CaptureReason::Timeout,
@@ -275,8 +281,10 @@ fn capture_loop(
                 // cap fired. The next loop iteration recomputes which
                 // and acts.
                 if idle_armed && idle_remaining == Duration::ZERO {
-                    let _ = killer.kill();
+                    // Drain BEFORE killing. See the matching comment in
+                    // the timeout branch above.
                     drain_remaining(rx, &mut buffer);
+                    let _ = killer.kill();
                     return CaptureOutput {
                         bytes: buffer,
                         reason: CaptureReason::Idle,
