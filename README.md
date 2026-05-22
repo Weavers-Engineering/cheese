@@ -17,6 +17,8 @@ cheese capture               # v0.2: screenshot your running terminal pane
 - **`cheese <cmd>...`** spawns the command in a real PTY. The source sees `isatty(stdout) = true`, emits full ANSI colors, and gets your real terminal width. This is canonical: pass your command and get a render that matches what you'd see in the terminal.
 - **`... | cheese`** renders the raw piped bytes verbatim. Useful for log files, here-docs, programmatic feeds. Lossy when the source tool strips ANSI / collapses width on pipe (which is most modern CLIs). For tty-sensitive tools, use `cheese <cmd>` instead.
 
+**Interactive TUIs:** `cheese` waits 1s of PTY silence by default, then snapshots whatever the child has drawn so far. This is what lets `cheese isd ssh` (or any fzf / inquire / prompt flow) render the first frame instead of hanging on stdin forever. Tune with `--idle <dur>` (e.g. `--idle 500ms`, `--idle 0` to wait for natural exit) or set a hard `--timeout <dur>` cap; whichever fires first wins. Natural child exit always beats both.
+
 ## Why
 
 Existing tools (freeze, t-rec, asciinema) run the command in a constrained pty of their own, then re-render with their font and their theme. The output is a *similar-looking* render, not your terminal.

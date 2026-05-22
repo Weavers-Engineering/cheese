@@ -4,9 +4,10 @@
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crate::{
-    pty,
+    pty::{self, CaptureConfig, CaptureReason},
     render::{self, RenderOpts},
     theme::Theme,
     vt,
@@ -32,6 +33,13 @@ pub struct RenderRequest {
     pub chrome: Chrome,
     pub theme: String,
     pub no_shadow: bool,
+    /// Render after this much PTY silence. `Duration::ZERO` waits for
+    /// natural exit (the pre-v0.2 behaviour). Only used by the exec
+    /// flow; the pipe flow reads to EOF on stdin.
+    pub idle: Duration,
+    /// Hard cap on real wall-clock time the child can run. `None`
+    /// means no cap. Pairs with `idle`: whichever fires first wins.
+    pub timeout: Option<Duration>,
 }
 
 /// Arguments accepted by `cheese exec`.
@@ -49,9 +57,35 @@ pub struct ExecArgs {
 /// captured bytes, the theme name is unknown, the pixmap allocation
 /// overflows, or the output path cannot be written.
 pub fn run(args: ExecArgs) -> Result<()> {
-    let captured = pty::run(&args.cmd, args.render.cols, args.render.rows)?;
-    let stream = with_prompt(&args.cmd, &captured);
+    let config = CaptureConfig {
+        idle_after: args.render.idle,
+        timeout: args.render.timeout,
+    };
+    let captured = pty::run(&args.cmd, args.render.cols, args.render.rows, config)?;
+    match captured.reason {
+        CaptureReason::Idle => {
+            eprintln!(
+                "cheese: snapshotted after {} of silence (interactive TUI).",
+                format_duration(args.render.idle)
+            );
+        }
+        CaptureReason::Timeout => {
+            if let Some(t) = args.render.timeout {
+                eprintln!(
+                    "cheese: --timeout {} hit, rendering buffer.",
+                    format_duration(t)
+                );
+            }
+        }
+        CaptureReason::Exited => {}
+    }
+    let stream = with_prompt(&args.cmd, &captured.bytes);
     render_and_emit(&stream, &args.render)
+}
+
+fn format_duration(d: Duration) -> String {
+    // humantime renders Duration in a readable form (e.g. "1s", "500ms").
+    humantime::format_duration(d).to_string()
 }
 
 /// Parse `bytes` into a grid, render it, and deliver to the operator's
