@@ -11,7 +11,7 @@ use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{
     Color as AnsiColor, NamedColor, Processor, Rgb as AnsiRgb, StdSyncHandler,
 };
@@ -115,9 +115,15 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
         }
     }
 
+    // Honor DECTCEM: when the captured stream issued `CSI ?25l` (cursor
+    // hide) and never re-enabled it, drop the cursor entirely. Inline
+    // TUIs in their NORMAL / navigation mode commonly hide the cursor;
+    // without this check, cheese renders a stray block over whatever
+    // glyph happens to sit at the tracked position.
+    let cursor_visible = term.mode().contains(TermMode::SHOW_CURSOR);
     let cursor_point = grid_ref.cursor.point;
     let (cur_row, cur_col) = (cursor_point.line.0 as usize, cursor_point.column.0);
-    let cursor = if cur_row < rows && cur_col < cols {
+    let cursor = if cursor_visible && cur_row < rows && cur_col < cols {
         Some((cur_row, cur_col))
     } else {
         None
@@ -286,5 +292,30 @@ mod tests {
     fn used_rows_blank_input_is_one() {
         let grid = parse(b"", 4, 8).unwrap();
         assert_eq!(grid.used_rows, 1);
+    }
+
+    #[test]
+    fn cursor_visible_by_default() {
+        // Default DECTCEM is on; the parsed grid should carry the
+        // tracked position.
+        let grid = parse(b"hi", 4, 2).unwrap();
+        assert!(grid.cursor.is_some(), "default cursor should be visible");
+    }
+
+    #[test]
+    fn dec_25l_hides_cursor() {
+        // `CSI ?25l` issued by the TUI must drop the cursor from the
+        // rendered grid. This mirrors what every inline TUI in NORMAL
+        // mode does so cheese stops painting a stray block.
+        let grid = parse(b"hi\x1b[?25l", 4, 2).unwrap();
+        assert_eq!(grid.cursor, None, "?25l should hide the cursor");
+    }
+
+    #[test]
+    fn dec_25h_after_25l_restores_cursor() {
+        // Toggling back on (INSERT mode in a vim-modal picker, say)
+        // brings the rendered cursor back.
+        let grid = parse(b"hi\x1b[?25l\x1b[?25h", 4, 2).unwrap();
+        assert!(grid.cursor.is_some(), "?25h should re-show the cursor");
     }
 }
