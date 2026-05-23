@@ -58,8 +58,26 @@ pub enum Color {
     Rgb(u8, u8, u8),
 }
 
+/// Scrollback capacity for the virtual terminal. Output longer than
+/// the PTY's row count scrolls off the top of the screen; without
+/// history, those lines vanish before cheese can render them.
+///
+/// `clap --help` for a moderately-sized CLI overruns a 40-row terminal
+/// easily, which is why `cheese cheese -h` (or any `--help` capture)
+/// used to lose its top. 10k lines covers anything a one-shot CLI
+/// will produce without bloating the grid for the common case (we
+/// only paint cells that actually hold content, see `parse`'s
+/// scrollback walk).
+const SCROLLBACK_LINES: usize = 10_000;
+
 /// Terminal dimensions wrapper. `alacritty_terminal::Term::new` is
 /// generic over `&dyn Dimensions`.
+///
+/// `total_lines = rows + SCROLLBACK_LINES` enables alacritty's scroll
+/// buffer so content that scrolls past the top of the screen lives on
+/// for the snapshot pass. `parse` walks the full history + screen and
+/// crops to the actual occupied range so the rendered PNG is sized
+/// to content, not to scrollback capacity.
 struct GridDims {
     cols: usize,
     rows: usize,
@@ -73,7 +91,7 @@ impl Dimensions for GridDims {
         self.rows
     }
     fn total_lines(&self) -> usize {
-        self.rows
+        self.rows + SCROLLBACK_LINES
     }
 }
 
@@ -96,10 +114,22 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
     parser.advance(&mut term, bytes);
 
     let grid_ref = term.grid();
-    let mut cells = Vec::with_capacity(rows * cols);
-    for row_idx in 0..rows {
+    let screen = rows as i32;
+    let history = grid_ref.history_size() as i32;
+
+    // Range of populated lines: from the deepest scrollback line that
+    // alacritty kept (topmost = -history) down to the bottom of the
+    // current screen (bottommost = screen - 1). We crop blank lines
+    // off both ends so the rendered PNG sizes to actual content.
+    let (first_used, last_used) =
+        used_line_range(grid_ref, -history, screen - 1, cols).unwrap_or((0, 0));
+
+    let used_rows = (last_used - first_used + 1).max(1) as usize;
+
+    let mut cells = Vec::with_capacity(used_rows * cols);
+    for line_idx in first_used..=last_used {
         for col_idx in 0..cols {
-            let point = Point::new(Line(row_idx as i32), Column(col_idx));
+            let point = Point::new(Line(line_idx), Column(col_idx));
             let alac_cell = &grid_ref[point];
             cells.push(Cell {
                 ch: alac_cell.c,
@@ -120,20 +150,26 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
     // TUIs in their NORMAL / navigation mode commonly hide the cursor;
     // without this check, cheese renders a stray block over whatever
     // glyph happens to sit at the tracked position.
+    //
+    // The cursor's alacritty line is in screen-relative coordinates (0
+    // through screen-1). Translate to the cropped grid by subtracting
+    // first_used.
     let cursor_visible = term.mode().contains(TermMode::SHOW_CURSOR);
     let cursor_point = grid_ref.cursor.point;
-    let (cur_row, cur_col) = (cursor_point.line.0 as usize, cursor_point.column.0);
-    let cursor = if cursor_visible && cur_row < rows && cur_col < cols {
-        Some((cur_row, cur_col))
-    } else {
-        None
-    };
+    let cur_line = cursor_point.line.0;
+    let cur_col = cursor_point.column.0;
+    let cursor =
+        if cursor_visible && cur_line >= first_used && cur_line <= last_used && cur_col < cols {
+            let cur_row = (cur_line - first_used) as usize;
+            Some((cur_row, cur_col))
+        } else {
+            None
+        };
 
-    let used_rows = compute_used_rows(&cells, rows, cols);
-    let used_cols = compute_used_cols(&cells, rows, cols);
+    let used_cols = compute_used_cols(&cells, used_rows, cols);
 
     Ok(Grid {
-        rows,
+        rows: used_rows,
         cols,
         cells,
         cursor,
@@ -142,20 +178,31 @@ pub fn parse(bytes: &[u8], cols: usize, rows: usize) -> Result<Grid> {
     })
 }
 
-/// Find the last row that contains any non-space character, +1.
-/// Clamps to at least 1 so the canvas is never zero-height.
-fn compute_used_rows(cells: &[Cell], rows: usize, cols: usize) -> usize {
-    for row in (0..rows).rev() {
-        let start = row * cols;
-        let end = start + cols;
-        if cells[start..end]
-            .iter()
-            .any(|c| c.ch != ' ' && c.ch != '\0')
-        {
-            return row + 1;
+/// Walk the grid between `top` and `bottom` (alacritty line indices,
+/// inclusive) and return the inclusive range of non-blank lines.
+/// Returns `None` when the whole window is empty.
+fn used_line_range<L: alacritty_terminal::grid::GridCell + Clone + Default + std::fmt::Debug>(
+    grid: &alacritty_terminal::grid::Grid<L>,
+    top: i32,
+    bottom: i32,
+    cols: usize,
+) -> Option<(i32, i32)> {
+    let mut first = None;
+    let mut last = top - 1;
+    for line_idx in top..=bottom {
+        let line = Line(line_idx);
+        let any_non_blank = (0..cols).any(|c| {
+            let cell = &grid[Point::new(line, Column(c))];
+            !cell.is_empty()
+        });
+        if any_non_blank {
+            if first.is_none() {
+                first = Some(line_idx);
+            }
+            last = line_idx;
         }
     }
-    1
+    first.map(|f| (f, last))
 }
 
 /// Find the last column that carries non-space content anywhere in
@@ -255,11 +302,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_empty_input_yields_blank_grid() {
+    fn parse_empty_input_yields_one_row_grid() {
+        // Empty input crops to a single blank row (the renderer's
+        // minimum canvas). cols stays at the configured value.
         let grid = parse(b"", 4, 2).unwrap();
-        assert_eq!(grid.rows, 2);
+        assert_eq!(grid.rows, 1);
         assert_eq!(grid.cols, 4);
-        assert_eq!(grid.cells.len(), 8);
+        assert_eq!(grid.cells.len(), 4);
         for c in &grid.cells {
             assert_eq!(c.ch, ' ');
         }
@@ -283,9 +332,36 @@ mod tests {
 
     #[test]
     fn used_rows_crops_to_last_non_blank_row() {
+        // Two lines of content in a 20-row PTY: the grid crops to
+        // exactly those two rows. rows == used_rows after the
+        // scrollback rework (parse handles the crop itself).
         let grid = parse(b"line1\r\nline2\r\n", 10, 20).unwrap();
         assert_eq!(grid.used_rows, 2);
-        assert_eq!(grid.rows, 20);
+        assert_eq!(grid.rows, 2);
+    }
+
+    #[test]
+    fn scrollback_preserves_lines_past_the_screen_height() {
+        // Sixty newline-separated lines in a 4-row PTY: pre-scrollback
+        // this clobbered the first 56 lines. With the scroll buffer
+        // we keep all 60 plus a trailing blank row from the final \n.
+        let mut bytes = String::new();
+        for i in 0..60 {
+            use std::fmt::Write;
+            writeln!(&mut bytes, "line-{i}").unwrap();
+        }
+        let grid = parse(bytes.as_bytes(), 10, 4).unwrap();
+        assert!(
+            grid.rows >= 60,
+            "expected to keep at least 60 lines of scrollback, got {}",
+            grid.rows
+        );
+        // First row carries line-0 (proves the top survived).
+        let row0: String = grid.cells[..10].iter().map(|c| c.ch).collect();
+        assert!(
+            row0.starts_with("line-0"),
+            "first row should be line-0: {row0:?}"
+        );
     }
 
     #[test]
